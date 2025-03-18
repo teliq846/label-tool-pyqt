@@ -3,12 +3,19 @@ import os
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton,
                            QVBoxLayout, QHBoxLayout, QComboBox, QFileDialog,
                            QLabel, QFrame, QMessageBox, QSlider)
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QIcon, QPalette, QColor
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+
+# 用于调试 - 打印当前文件信息
+print(f"运行文件: {__file__}")
+print(f"文件修改时间: {os.path.getmtime(__file__)}")
+print(f"Python版本: {sys.version}")
+
 import numpy as np
+import matplotlib.font_manager as fm
 
 from config import UI_CONFIG, FILE_CONFIG, DISPLAY_CONFIG, GRID_CONFIG, LABELS, ERROR_MESSAGES
 from nifti_utils import NiftiDataManager
@@ -16,12 +23,13 @@ from nifti_utils import NiftiDataManager
 class DarkPalette(QPalette):
     def __init__(self):
         super().__init__()
-        self.setColor(QPalette.ColorRole.Window, QColor(UI_CONFIG['dark_mode']['background']))
-        self.setColor(QPalette.ColorRole.WindowText, QColor(UI_CONFIG['dark_mode']['foreground']))
-        self.setColor(QPalette.ColorRole.Base, QColor(UI_CONFIG['dark_mode']['background']))
-        self.setColor(QPalette.ColorRole.Text, QColor(UI_CONFIG['dark_mode']['foreground']))
-        self.setColor(QPalette.ColorRole.Button, QColor(UI_CONFIG['dark_mode']['button_background']))
-        self.setColor(QPalette.ColorRole.ButtonText, QColor(UI_CONFIG['dark_mode']['foreground']))
+        # 设置更透明的背景色以增强毛玻璃效果
+        self.setColor(QPalette.ColorRole.Window, QColor(25, 25, 35, 220))  # 半透明背景
+        self.setColor(QPalette.ColorRole.WindowText, QColor(230, 230, 230, 250))  # 更亮的文本颜色
+        self.setColor(QPalette.ColorRole.Base, QColor(30, 30, 40, 200))  # 半透明基础色
+        self.setColor(QPalette.ColorRole.Text, QColor(230, 230, 230, 250))
+        self.setColor(QPalette.ColorRole.Button, QColor(40, 40, 50, 200))  # 半透明按钮背景
+        self.setColor(QPalette.ColorRole.ButtonText, QColor(230, 230, 230, 250))
 
 class SliceWidget(QFrame):
     slice_changed = pyqtSignal(str, int)
@@ -30,42 +38,62 @@ class SliceWidget(QFrame):
         super().__init__(parent)
         self.view = view
         self.setup_ui()
+        # 设置毛玻璃效果
+        self.setStyleSheet(f"""
+            QFrame#slice_{self.view.lower()} {{
+                background-color: rgba(35, 35, 45, 180);
+                border: 1px solid rgba(255, 255, 255, 30);
+                border-radius: 12px;
+            }}
+        """)
+        self.setObjectName(f"slice_{self.view.lower()}")
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 12)
         layout.setSpacing(8)
         self.setFrameStyle(QFrame.Shape.NoFrame)
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {UI_CONFIG['dark_mode']['frame_background']};
-                border-radius: 8px;
-                margin-bottom: 4px;
-            }}
-        """)
 
-        # Create matplotlib figure with tight layout
+        # 添加顶部标题标签
+        self.title_label = QLabel(f"{self.view} {LABELS['view']}")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label.setStyleSheet(f"""
+            color: rgba(255, 255, 255, 240);
+            font-weight: bold;
+            font-size: {UI_CONFIG['title_font_size']}pt;
+            padding: 6px;
+            background-color: rgba(60, 60, 80, 180);
+            border: 1px solid rgba(255, 255, 255, 30);
+            border-radius: 6px;
+            margin: 0px 4px;
+        """)
+        layout.addWidget(self.title_label)
+
+        # 创建带透明背景的matplotlib图形
         self.figure = Figure(figsize=DISPLAY_CONFIG['figure_size'])
-        self.figure.patch.set_facecolor(DISPLAY_CONFIG['figure_facecolor'])
+        self.figure.patch.set_facecolor((0, 0, 0, 0))  # 完全透明背景
         
-        # Create subplot with specific spacing
+        # 设置matplotlib字体属性以避免非英文文本的警告
+        self.font_prop = fm.FontProperties(family='Arial')
+        
+        # 创建子图
         self.ax = self.figure.add_subplot(111)
-        self.ax.set_facecolor(DISPLAY_CONFIG['axes_facecolor'])
+        self.ax.set_facecolor((0.12, 0.12, 0.15, 0.6))  # 半透明背景
         
-        # Remove axes completely
+        # 完全移除坐标轴
         self.ax.set_axis_off()
         
-        # Adjust subplot parameters to remove white lines
-        self.figure.subplots_adjust(left=0, right=1, bottom=0, top=0.9, wspace=0, hspace=0)
+        # 调整子图参数
+        self.figure.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0, hspace=0)
         
         self.canvas = FigureCanvas(self.figure)
         self.canvas.setStyleSheet(f"""
-            background-color: {UI_CONFIG['dark_mode']['frame_background']};
+            background-color: transparent;
             border: none;
         """)
         layout.addWidget(self.canvas)
 
-        # Create slider
+        # 创建滑块
         slider_layout = QVBoxLayout()
         slider_layout.setSpacing(6)
         slider_layout.setContentsMargins(4, 0, 4, 0)
@@ -73,9 +101,12 @@ class SliceWidget(QFrame):
         self.slice_label = QLabel(f"{LABELS['slice']}: 0")
         self.slice_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.slice_label.setStyleSheet(f"""
-            color: {UI_CONFIG['dark_mode']['highlight_text']};
+            color: rgba(255, 255, 255, 240);
             font-size: {UI_CONFIG['font_size']}pt;
-            padding: 2px;
+            padding: 4px;
+            background-color: rgba(60, 60, 80, 180);
+            border: 1px solid rgba(255, 255, 255, 30);
+            border-radius: 6px;
         """)
         slider_layout.addWidget(self.slice_label)
 
@@ -88,39 +119,32 @@ class SliceWidget(QFrame):
                 margin: 4px 0px;
             }}
             QSlider::groove:horizontal {{
-                background: {UI_CONFIG['dark_mode']['button_background']};
+                background: rgba(60, 60, 80, 180);
                 height: 6px;
                 border-radius: 3px;
             }}
             QSlider::handle:horizontal {{
-                background: {UI_CONFIG['dark_mode']['accent_color']};
+                background: rgba(70, 130, 180, 220);
                 width: 18px;
                 margin: -6px 0;
                 border-radius: 9px;
+                border: 1px solid rgba(255, 255, 255, 50);
             }}
             QSlider::handle:horizontal:hover {{
-                background: {UI_CONFIG['dark_mode']['accent_hover']};
+                background: rgba(90, 150, 200, 220);
+                border: 1px solid rgba(255, 255, 255, 70);
             }}
         """)
         slider_layout.addWidget(self.slider)
 
         layout.addLayout(slider_layout)
 
-        # Initialize empty plot
-        self.ax = self.figure.add_subplot(111)
-        self.ax.set_facecolor(DISPLAY_CONFIG['axes_facecolor'])
-        
-        # Set title with bold font
-        self.ax.set_title(f"{self.view} {LABELS['view']}", 
-                         color=DISPLAY_CONFIG['text_color'],
-                         fontweight=DISPLAY_CONFIG['title_weight'],
-                         fontsize=DISPLAY_CONFIG['title_size'],
-                         pad=DISPLAY_CONFIG['title_pad'])
-        
+        # 初始化空图表 - 使用fontproperties避免缺失字形警告
         self.ax.text(0.5, 0.5, LABELS['please_load'],
                     ha='center', va='center', 
                     fontsize=UI_CONFIG['font_size'],
-                    color=DISPLAY_CONFIG['text_color'])
+                    color=(1, 1, 1, 0.8),  # 使用matplotlib支持的元组格式(r,g,b,a)
+                    fontproperties=self.font_prop)
         self.ax.set_xticks([])
         self.ax.set_yticks([])
         self.canvas.draw()
@@ -132,50 +156,55 @@ class SliceWidget(QFrame):
     def update_view(self, data: np.ndarray, mask: np.ndarray, slice_idx: int):
         self.ax.clear()
         
-        # Ensure dark background
-        self.ax.set_facecolor(DISPLAY_CONFIG['axes_facecolor'])
+        # 确保深色背景
+        self.ax.set_facecolor((0.12, 0.12, 0.15, 0.6))
         
-        # Remove axes completely
+        # 完全移除坐标轴
         self.ax.set_axis_off()
         
-        # Display data with exact extent
+        # 使用精确范围显示数据
         height, width = data.T.shape
-        # Create a colored mask for visualization
-        colored_data = np.zeros_like(data)  # Set all data to 0 (background)
-        colored_data[data > 0] = 1  # Set brain tissue to 1 (unlabeled/blue)
-        colored_data[mask > 0.5] = 2  # Set labeled regions to 2 (orange)
+        # 创建用于可视化的彩色遮罩
+        colored_data = np.zeros_like(data)  # 将所有数据设置为0（背景）
+        colored_data[data > 0] = 1  # 将脑组织设置为1（未标记/蓝色）
+        colored_data[mask > 0.5] = 2  # 将标记区域设置为2（橙色）
+        
+        # 使用更明亮的渐变色彩图，搭配毛玻璃效果
+        custom_cmap = plt.cm.get_cmap('cool', 3)
+        # 修改第一个颜色为透明黑色（背景）
+        colors = custom_cmap(np.arange(3))
+        colors[0] = [0, 0, 0, 0.3]  # 半透明黑色背景
+        colors[1] = [0.2, 0.4, 0.8, 0.8]  # 半透明蓝色（脑组织）
+        colors[2] = [1, 0.5, 0, 0.9]  # 橙色（标记区域）
+        custom_cmap = plt.matplotlib.colors.ListedColormap(colors)
         
         self.ax.imshow(colored_data.T, 
                       extent=(-0.5, width-0.5, -0.5, height-0.5),
-                      cmap=DISPLAY_CONFIG['cmap'],
-                      norm=plt.Normalize(0, 2),  # Explicitly set range from 0 to 2
+                      cmap=custom_cmap,
+                      norm=plt.Normalize(0, 2),  # 明确设置范围从0到2
                       origin=DISPLAY_CONFIG['origin'],
-                      interpolation=DISPLAY_CONFIG['interpolation'])
+                      interpolation='bilinear')  # 使用双线性插值使图像更平滑
         
-        # Add contour with same extent
+        # 添加具有相同范围的轮廓
         self.ax.contour(np.arange(width), np.arange(height), mask.T,
                        levels=[0.5],
-                       colors=DISPLAY_CONFIG['contour_color'],
-                       linewidths=DISPLAY_CONFIG['contour_width'])
+                       colors=[(1, 1, 1, 0.7)],  # 半透明白色轮廓 - 已经是正确的元组格式
+                       linewidths=1.5)
         
-        # Update title with bold font
-        self.ax.set_title(f"{self.view} {LABELS['view']}", 
-                         color=DISPLAY_CONFIG['text_color'],
-                         fontweight=DISPLAY_CONFIG['title_weight'],
-                         fontsize=DISPLAY_CONFIG['title_size'],
-                         pad=DISPLAY_CONFIG['title_pad'])
+        # 更新Qt标签中的切片文本（不是在matplotlib中）
+        self.slice_label.setText(f"{LABELS['slice']}: {slice_idx}")
         
-        # Remove ticks and ensure axes don't expand
+        # 移除刻度并确保坐标轴不扩展
         self.ax.set_axis_off()
         self.ax.set_xlim(-0.5, width-0.5)
         self.ax.set_ylim(-0.5, height-0.5)
         
-        # Update slider
+        # 更新滑块
         if self.slider.maximum() == 0:
             self.slider.setMaximum(data.shape[0] - 1)
         self.slider.setValue(slice_idx)
         
-        # Ensure tight layout and redraw
+        # 确保紧凑布局并重绘
         self.figure.tight_layout()
         self.canvas.draw()
 
@@ -186,152 +215,348 @@ class ControlPanel(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setMinimumWidth(UI_CONFIG['control_panel_width'])
+        self.setMaximumWidth(UI_CONFIG['control_panel_width'])
         self.setup_ui()
+        # 设置毛玻璃效果
+        self.setStyleSheet(f"""
+            QFrame#controlPanel {{
+                background-color: rgba(30, 30, 40, 180);
+                border: 1px solid rgba(255, 255, 255, 30);
+                border-radius: 12px;
+            }}
+        """)
+        self.setObjectName("controlPanel")
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(12)
-        self.setFixedWidth(UI_CONFIG['control_panel_width'])
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)  # 保留无内容边距
+        self.main_layout.setSpacing(0)  # 保留无间距
         self.setFrameStyle(QFrame.Shape.NoFrame)
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {UI_CONFIG['dark_mode']['frame_background']};
+        
+        # 内容容器
+        self.content_widget = QWidget()
+        self.content_widget.setContentsMargins(10, 10, 10, 10)
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(10)
+        
+        # 顶部布局 - 保留固定高度以保持对齐
+        top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(10, 8, 10, 0)  # 固定顶部边距为8px
+        top_layout.setSpacing(6)
+        
+        # 只保留标题
+        panel_title = QLabel("Control Panel")
+        panel_title.setStyleSheet(f"""
+            color: rgba(255, 255, 255, 240);
+            font-weight: bold;
+            font-size: {UI_CONFIG['title_font_size']}pt;
+            padding: 4px;
+        """)
+        
+        top_layout.addWidget(panel_title)
+        top_layout.addStretch()
+        
+        self.content_layout.addLayout(top_layout)
+        
+        # 创建分隔线
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFixedHeight(1)
+        separator.setStyleSheet(f"""
+            background-color: rgba(255, 255, 255, 50);
+            margin: 8px 0px;
+        """)
+        self.content_layout.addWidget(separator)
+        
+        # 毛玻璃按钮样式
+        button_style = f"""
+            QPushButton {{
+                background-color: rgba(60, 60, 80, 180);
+                color: rgba(255, 255, 255, 240);
+                padding: 10px;
                 border-radius: 8px;
+                font-size: {UI_CONFIG['font_size']}pt;
+                border: 1px solid rgba(255, 255, 255, 30);
             }}
-        """)
-
-        # File selection button
+            QPushButton:hover {{
+                background-color: rgba(80, 80, 100, 200);
+                border: 1px solid rgba(255, 255, 255, 50);
+            }}
+        """
+        
+        accent_button_style = f"""
+            QPushButton {{
+                background-color: rgba(70, 130, 180, 200);
+                color: rgba(255, 255, 255, 240);
+                padding: 10px;
+                border-radius: 8px;
+                font-size: {UI_CONFIG['font_size']}pt;
+                border: 1px solid rgba(255, 255, 255, 50);
+            }}
+            QPushButton:hover {{
+                background-color: rgba(90, 150, 200, 220);
+                border: 1px solid rgba(255, 255, 255, 70);
+            }}
+        """
+        
         self.file_button = QPushButton(LABELS['select_file'])
-        self.file_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {UI_CONFIG['dark_mode']['button_background']};
-                color: {UI_CONFIG['dark_mode']['foreground']};
-                padding: 10px;
-                border-radius: 6px;
-                font-size: {UI_CONFIG['font_size']}pt;
-            }}
-            QPushButton:hover {{
-                background-color: {UI_CONFIG['dark_mode']['button_hover']};
-            }}
-        """)
+        self.file_button.setStyleSheet(button_style)
         self.file_button.clicked.connect(self.file_selected.emit)
-        layout.addWidget(self.file_button)
+        self.file_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.content_layout.addWidget(self.file_button)
 
-        # Load button
         self.load_button = QPushButton(LABELS['load_data'])
-        self.load_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {UI_CONFIG['dark_mode']['accent_color']};
-                color: {UI_CONFIG['dark_mode']['foreground']};
-                padding: 10px;
-                border-radius: 6px;
-                font-size: {UI_CONFIG['font_size']}pt;
-            }}
-            QPushButton:hover {{
-                background-color: {UI_CONFIG['dark_mode']['accent_hover']};
-            }}
-        """)
+        self.load_button.setStyleSheet(accent_button_style)
         self.load_button.clicked.connect(self.load_clicked.emit)
-        layout.addWidget(self.load_button)
+        self.load_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.content_layout.addWidget(self.load_button)
 
-        # Label selection frame
+        # 标签选择带毛玻璃效果
+        frame_style = f"""
+            QFrame {{
+                background-color: rgba(50, 50, 70, 180);
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 40);
+                padding: 8px;
+            }}
+            QFrame:hover {{
+                border: 1px solid rgba(255, 255, 255, 60);
+                background-color: rgba(55, 55, 75, 200);
+            }}
+        """
+        
         label_frame = QFrame()
         label_frame.setFrameStyle(QFrame.Shape.NoFrame)
-        label_frame.setStyleSheet(f"""
-            QFrame {{
-                background-color: {UI_CONFIG['dark_mode']['button_background']};
-                border-radius: 6px;
-                padding: 2px;
-            }}
-        """)
+        label_frame.setStyleSheet(frame_style)
         label_layout = QVBoxLayout(label_frame)
-        label_layout.setContentsMargins(12, 12, 12, 12)
-        label_layout.setSpacing(8)
+        label_layout.setContentsMargins(12, 12, 12, 15)
+        label_layout.setSpacing(12)
         
+        # 添加标题容器，带图标效果
+        title_container = QHBoxLayout()
+        title_container.setContentsMargins(0, 0, 0, 0)
+        title_container.setSpacing(8)
+        
+        # 模拟标签图标
+        label_icon = QLabel("🏷️")
+        label_icon.setStyleSheet(f"""
+            font-size: {UI_CONFIG['title_font_size'] + 2}pt;
+            color: rgba(255, 255, 255, 240);
+        """)
+        title_container.addWidget(label_icon)
+        
+        # 标题文本
         label_title = QLabel(LABELS['label_selection'])
-        label_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         label_title.setStyleSheet(f"""
-            color: {UI_CONFIG['dark_mode']['highlight_text']};
+            color: rgba(255, 255, 255, 240);
             font-weight: bold;
             font-size: {UI_CONFIG['title_font_size']}pt;
         """)
-        label_layout.addWidget(label_title)
+        title_container.addWidget(label_title)
+        title_container.addStretch()
         
+        label_layout.addLayout(title_container)
+        
+        # 添加说明标签
+        hint_label = QLabel(f"选择要查看的标签类别")
+        hint_label.setWordWrap(True)
+        hint_label.setStyleSheet(f"""
+            color: rgba(255, 255, 255, 180);
+            font-size: {UI_CONFIG['font_size'] - 1}pt;
+            padding-left: 2px;
+            font-style: italic;
+        """)
+        label_layout.addWidget(hint_label)
+        
+        # 改进的毛玻璃组合框样式
         self.label_combo = QComboBox()
         self.label_combo.setStyleSheet(f"""
             QComboBox {{
-                background-color: {UI_CONFIG['dark_mode']['background']};
-                color: {UI_CONFIG['dark_mode']['foreground']};
-                border-radius: 4px;
-                padding: 6px;
-                min-height: 24px;
+                background-color: rgba(40, 40, 60, 180);
+                color: rgba(255, 255, 255, 240);
+                border-radius: 8px;
+                padding: 10px 12px;
+                border: 1px solid rgba(255, 255, 255, 40);
+                font-size: {UI_CONFIG['font_size']}pt;
+                font-weight: bold;
+                selection-background-color: rgba(70, 130, 180, 150);
+                min-height: 30px;
             }}
             QComboBox:hover {{
-                background-color: {UI_CONFIG['dark_mode']['button_hover']};
+                background-color: rgba(60, 60, 80, 220);
+                border: 1px solid rgba(255, 255, 255, 60);
+            }}
+            QComboBox:focus {{
+                border: 1px solid rgba(100, 170, 255, 160);
             }}
             QComboBox::drop-down {{
-                border: none;
-                width: 20px;
+                subcontrol-origin: padding;
+                subcontrol-position: right center;
+                width: 30px;
+                border-left: none;
+                border-top-right-radius: 8px;
+                border-bottom-right-radius: 8px;
             }}
             QComboBox::down-arrow {{
                 image: none;
-                border: none;
+                width: 20px;
+                height: 20px;
+                background-color: rgba(255, 255, 255, 160);
+                mask: url(down_arrow.png);
+                -qt-mask: url(down_arrow.png);
             }}
             QComboBox QAbstractItemView {{
-                background-color: {UI_CONFIG['dark_mode']['background']};
-                color: {UI_CONFIG['dark_mode']['foreground']};
-                selection-background-color: {UI_CONFIG['dark_mode']['accent_color']};
-                selection-color: {UI_CONFIG['dark_mode']['foreground']};
-                border-radius: 4px;
-                outline: none;
+                background-color: rgba(45, 45, 65, 245);
+                color: rgba(255, 255, 255, 240);
+                selection-background-color: rgba(70, 130, 180, 200);
+                border: 1px solid rgba(255, 255, 255, 60);
+                border-radius: 8px;
+                padding: 4px;
             }}
             QComboBox QAbstractItemView::item {{
-                padding: 4px 6px;
-                border-radius: 2px;
-                margin: 2px;
+                min-height: 24px;
+                padding: 4px 8px;
+                border-radius: 4px;
             }}
             QComboBox QAbstractItemView::item:hover {{
-                background-color: {UI_CONFIG['dark_mode']['highlight_text']};
-                color: {UI_CONFIG['dark_mode']['background']};
+                background-color: rgba(80, 140, 200, 100);
             }}
             QComboBox QAbstractItemView::item:selected {{
-                background-color: {UI_CONFIG['dark_mode']['accent_color']};
-                color: {UI_CONFIG['dark_mode']['foreground']};
+                background-color: rgba(70, 130, 180, 200);
             }}
         """)
         self.label_combo.currentIndexChanged.connect(self._on_label_changed)
-        label_layout.addWidget(self.label_combo)
+        self.label_combo.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        layout.addWidget(label_frame)
-
-        # Description text
-        desc_frame = QFrame()
-        desc_frame.setFrameStyle(QFrame.Shape.NoFrame)
-        desc_frame.setStyleSheet(f"""
-            QFrame {{
-                background-color: {UI_CONFIG['dark_mode']['button_background']};
+        # 添加组合框下方的标签计数显示
+        self.label_count = QLabel("当前暂无标签")
+        self.label_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_count.setStyleSheet(f"""
+            color: rgba(255, 255, 255, 180);
+            font-size: {UI_CONFIG['font_size'] - 1}pt;
+            padding: 4px;
+            margin-top: 2px;
+        """)
+        
+        # 创建标签选择容器
+        combo_container = QVBoxLayout()
+        combo_container.setSpacing(4)
+        combo_container.addWidget(self.label_combo)
+        combo_container.addWidget(self.label_count)
+        
+        label_layout.addLayout(combo_container)
+        
+        # 添加额外的标签选项按钮区域
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(8)
+        
+        # 可以添加排序按钮等功能扩展
+        self.sort_button = QPushButton("排序")
+        self.sort_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba(60, 60, 90, 150);
+                color: rgba(255, 255, 255, 220);
+                padding: 6px 10px;
                 border-radius: 6px;
-                padding: 2px;
+                font-size: {UI_CONFIG['font_size'] - 1}pt;
+                border: 1px solid rgba(255, 255, 255, 30);
+                min-width: 60px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(70, 70, 100, 180);
+                border: 1px solid rgba(255, 255, 255, 50);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(50, 50, 80, 180);
             }}
         """)
+        self.sort_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sort_button.clicked.connect(self._toggle_sort_order)
+        self.sort_ascending = True  # 默认升序排序
+        buttons_layout.addWidget(self.sort_button)
+        
+        self.refresh_button = QPushButton("刷新")
+        self.refresh_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba(60, 60, 90, 150);
+                color: rgba(255, 255, 255, 220);
+                padding: 6px 10px;
+                border-radius: 6px;
+                font-size: {UI_CONFIG['font_size'] - 1}pt;
+                border: 1px solid rgba(255, 255, 255, 30);
+                min-width: 60px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(70, 70, 100, 180);
+                border: 1px solid rgba(255, 255, 255, 50);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(50, 50, 80, 180);
+            }}
+        """)
+        self.refresh_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refresh_button.clicked.connect(self._refresh_labels)
+        buttons_layout.addWidget(self.refresh_button)
+        
+        label_layout.addLayout(buttons_layout)
+        
+        self.content_layout.addWidget(label_frame)
+        
+        # 描述部分
+        desc_frame = QFrame()
+        desc_frame.setFrameStyle(QFrame.Shape.NoFrame)
+        desc_frame.setStyleSheet(frame_style)
         desc_layout = QVBoxLayout(desc_frame)
         desc_layout.setContentsMargins(12, 12, 12, 12)
         
+        # 添加描述标题和图标
+        desc_title_layout = QHBoxLayout()
+        desc_title_layout.setSpacing(8)
+        
+        desc_icon = QLabel("ℹ️")
+        desc_icon.setStyleSheet(f"""
+            font-size: {UI_CONFIG['title_font_size'] + 2}pt;
+            color: rgba(255, 255, 255, 240);
+        """)
+        desc_title_layout.addWidget(desc_icon)
+        
+        desc_title = QLabel("详细信息")
+        desc_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        desc_title.setStyleSheet(f"""
+            color: rgba(255, 255, 255, 240);
+            font-weight: bold;
+            font-size: {UI_CONFIG['title_font_size']}pt;
+        """)
+        desc_title_layout.addWidget(desc_title)
+        desc_title_layout.addStretch()
+        
+        desc_layout.addLayout(desc_title_layout)
+        
+        # 更美观的描述标签
         desc_label = QLabel(LABELS['description'])
         desc_label.setWordWrap(True)
         desc_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         desc_label.setStyleSheet(f"""
-            color: {UI_CONFIG['dark_mode']['foreground']};
+            color: rgba(255, 255, 255, 230);
             font-size: {UI_CONFIG['font_size']}pt;
+            line-height: 150%;
+            padding: 8px 4px;
+            background-color: rgba(40, 40, 60, 80);
+            border-radius: 6px;
         """)
         desc_layout.addWidget(desc_label)
         
-        layout.addWidget(desc_frame)
-        layout.addStretch()
+        self.content_layout.addWidget(desc_frame)
+        self.content_layout.addStretch()
+        
+        # 将内容添加到主布局
+        self.main_layout.addWidget(self.content_widget)
 
     def _on_label_changed(self, index):
-        if index >= 0:  # Ensure valid index
+        if index >= 0:
             label = self.label_combo.itemData(index)
             if label is not None:
                 self.label_changed.emit(label)
@@ -340,9 +565,47 @@ class ControlPanel(QFrame):
         self.file_button.setText(LABELS['file_selected'].format(filename))
 
     def update_labels(self, labels: list):
+        # 保存当前标签列表用于排序和刷新
+        self.current_labels = labels if labels else []
         self.label_combo.clear()
-        for label in sorted(labels):  # Sort labels numerically
-            self.label_combo.addItem(str(label), label)  # Just show the number
+        
+        # 根据排序顺序排序标签
+        sorted_labels = sorted(self.current_labels, reverse=not self.sort_ascending)
+        
+        for label in sorted_labels:
+            self.label_combo.addItem(str(label), label)
+        
+        # 更新标签计数显示
+        if len(self.current_labels) > 0:
+            self.label_count.setText(f"共 {len(self.current_labels)} 个标签")
+            # 更新排序按钮文本，显示当前排序顺序
+            self.sort_button.setText("↑ 升序" if self.sort_ascending else "↓ 降序")
+        else:
+            self.label_count.setText("当前暂无标签")
+            self.sort_button.setText("排序")
+            
+    def _toggle_sort_order(self):
+        # 切换排序顺序
+        self.sort_ascending = not self.sort_ascending
+        
+        # 如果有标签，则重新排序
+        if hasattr(self, 'current_labels') and self.current_labels:
+            # 保存当前选中的标签
+            current_label = self.label_combo.currentData()
+            
+            # 更新标签列表（会根据self.sort_ascending重新排序）
+            self.update_labels(self.current_labels)
+            
+            # 如果之前有选中的标签，尝试恢复选中状态
+            if current_label is not None:
+                for i in range(self.label_combo.count()):
+                    if self.label_combo.itemData(i) == current_label:
+                        self.label_combo.setCurrentIndex(i)
+                        break
+        
+    def _refresh_labels(self):
+        # 触发刷新事件
+        self.file_selected.emit()  # 这将触发MainWindow重新加载文件并更新标签
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -351,7 +614,7 @@ class MainWindow(QMainWindow):
         self.current_file = None
         self.setup_ui()
         
-        # Set window icon
+        # 设置窗口图标
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), FILE_CONFIG['icon_path'])
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -360,42 +623,47 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(UI_CONFIG['window_title'])
         self.resize(*UI_CONFIG['window_size'])
 
-        # Create main widget
+        # 创建主部件
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         
-        # Set background color for main window
+        # 设置主窗口的背景色，使毛玻璃效果更明显
         self.setStyleSheet(f"""
             QMainWindow {{
-                background-color: {UI_CONFIG['dark_mode']['background']};
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                                stop:0 #1a1a2a, 
+                                                stop:0.5 #252540, 
+                                                stop:1 #1a1a2a);
             }}
         """)
 
-        # Main layout
-        main_layout = QHBoxLayout(main_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
+        # 主布局
+        self.main_layout = QHBoxLayout(main_widget)
+        self.main_layout.setContentsMargins(10, 10, 10, 10)
+        self.main_layout.setSpacing(10)
 
-        # Create control panel
+        # 创建控制面板
         self.control_panel = ControlPanel()
         self.control_panel.file_selected.connect(self.open_file)
         self.control_panel.load_clicked.connect(self.load_data)
         self.control_panel.label_changed.connect(self.update_label)
-        main_layout.addWidget(self.control_panel)
+        self.main_layout.addWidget(self.control_panel)
 
-        # Create view layout
-        view_container = QFrame()
-        view_container.setFrameStyle(QFrame.Shape.NoFrame)
-        view_container.setStyleSheet(f"""
-            QFrame {{
-                background-color: {UI_CONFIG['dark_mode']['frame_background']};
-                border-radius: 8px;
+        # 创建视图布局
+        self.view_container = QFrame()
+        self.view_container.setFrameStyle(QFrame.Shape.NoFrame)
+        self.view_container.setStyleSheet(f"""
+            QFrame#viewContainer {{
+                background-color: rgba(35, 35, 45, 160);
+                border: 1px solid rgba(255, 255, 255, 30);
+                border-radius: 12px;
             }}
         """)
-        view_layout = QHBoxLayout(view_container)
+        self.view_container.setObjectName("viewContainer")
+        view_layout = QHBoxLayout(self.view_container)
         view_layout.setSpacing(10)
         view_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.addWidget(view_container)
+        self.main_layout.addWidget(self.view_container)
 
         # Create slice views
         self.views = {}
@@ -487,23 +755,84 @@ class MainWindow(QMainWindow):
                     continue
         except Exception as e:
             print(f"Error updating all views: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to update views: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to update all views: {str(e)}")
 
 if __name__ == '__main__':
     try:
         app = QApplication(sys.argv)
         
-        # Set application icon
+        # 设置应用程序图标
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), FILE_CONFIG['icon_path'])
         if os.path.exists(icon_path):
             app.setWindowIcon(QIcon(icon_path))
         
-        # Apply dark theme
+        # 应用暗色主题
         app.setStyle('Fusion')
         app.setPalette(DarkPalette())
         
+        # 设置应用程序样式表增强毛玻璃效果
+        app.setStyleSheet("""
+            QToolTip {
+                background-color: rgba(40, 40, 60, 220);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 40);
+                border-radius: 4px;
+                padding: 4px;
+            }
+            
+            QScrollBar:vertical {
+                background: rgba(30, 30, 40, 120);
+                width: 12px;
+                border-radius: 6px;
+            }
+            
+            QScrollBar::handle:vertical {
+                background: rgba(80, 80, 120, 180);
+                min-height: 20px;
+                border-radius: 6px;
+            }
+            
+            QScrollBar::handle:vertical:hover {
+                background: rgba(100, 100, 150, 200);
+            }
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            
+            QScrollBar:horizontal {
+                background: rgba(30, 30, 40, 120);
+                height: 12px;
+                border-radius: 6px;
+            }
+            
+            QScrollBar::handle:horizontal {
+                background: rgba(80, 80, 120, 180);
+                min-width: 20px;
+                border-radius: 6px;
+            }
+            
+            QScrollBar::handle:horizontal:hover {
+                background: rgba(100, 100, 150, 200);
+            }
+            
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+        """)
+        
         window = MainWindow()
+        
+        # 使用淡入效果显示窗口
+        window.setWindowOpacity(0)
         window.show()
+        
+        # 动画效果淡入
+        for i in range(1, 11):
+            window.setWindowOpacity(i/10)
+            app.processEvents()
+            QTimer.singleShot(20, app.processEvents)
+        
         sys.exit(app.exec())
     except Exception as e:
         QMessageBox.critical(None, "Error", f"Failed to start application: {str(e)}")
